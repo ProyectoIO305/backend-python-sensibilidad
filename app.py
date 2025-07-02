@@ -55,18 +55,15 @@ async def analisis_sensibilidad(data: SensibilidadRequest):
 
     sensibilidadVariables = []
     for i, var in enumerate(x):
-        if coef_objetivo[i] != 0:
-            # Calcular el porcentaje de cambio permisible (aproximación)
-            margen = abs(var.dj / coef_objetivo[i]) if coef_objetivo[i] != 0 else 0
-            porcentaje = margen * 100
+        if var.varValue == 0:
+            comentario = "Variable no utilizada en la solución actual"
         else:
-            porcentaje = 0
+            comentario = "Variable activa en la solución actual"
 
         sensibilidadVariables.append({
             "variable": var.name,
             "valorActual": round(var.varValue, 4),
-            "permisibleAumentar": f"Aproximadamente puede aumentar {round(porcentaje, 2)}%" if var.dj > 0 else "Sin margen de aumento",
-            "permisibleDisminuir": f"Aproximadamente puede disminuir {round(porcentaje, 2)}%" if var.dj < 0 else "Sin margen de disminución"
+            "comentario": comentario
         })
 
     sensibilidadRestricciones = []
@@ -76,8 +73,7 @@ async def analisis_sensibilidad(data: SensibilidadRequest):
             "restriccion": nombre,
             "valorActual": round(rhs[int(nombre[1:]) - 1], 4),
             "valorSombra": round(sombra, 4),
-            "permisibleAumentar": "No calculado",
-            "permisibleDisminuir": "No calculado"
+            "comentario": "Análisis detallado no disponible"
         })
 
     return {

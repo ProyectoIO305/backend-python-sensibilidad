@@ -1,89 +1,79 @@
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-import numpy as np
-import scipy.optimize as opt
+from pydantic import BaseModel
+import pulp
 
 app = FastAPI()
 
-# Configuración CORS
+# Habilitar CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://pruebaproyecto-1jeh.onrender.com"],  # Específico
-    allow_credentials=True,
-    allow_methods=["*"],  # Puedes usar ["GET", "POST", "OPTIONS"] pero "*" es más flexible
-    allow_headers=["*"],
+    allow_origins=["*"],  # Puedes restringir esto luego
+    allow_methods=["*"],
+    allow_headers=["*"]
 )
 
-@app.get("/")
-def read_root():
-    return {"message": "Backend de análisis de sensibilidad funcionando correctamente"}
-
-@app.options("/analisis-sensibilidad")  # Soportar preflight OPTIONS
-def options_handler():
-    return {}
+# Modelo de datos esperado
+class SensibilidadRequest(BaseModel):
+    tipo: str  # 'max' o 'min'
+    coef_objetivo: list
+    lhs: list  # Lista de listas (coeficientes restricciones)
+    rhs: list  # Lado derecho restricciones
 
 @app.post("/analisis-sensibilidad")
-async def analisis_sensibilidad(request: Request):
-    try:
-        body = await request.json()
-        print("🔵 Datos recibidos:", body)
+async def analisis_sensibilidad(data: SensibilidadRequest):
+    tipo = data.tipo
+    coef_objetivo = data.coef_objetivo
+    lhs = data.lhs
+    rhs = data.rhs
 
-        tipo = body["tipo"]
-        coef_objetivo = np.array(body["coef_objetivo"])
-        lhs = np.array(body["lhs"])
-        rhs = np.array(body["rhs"])
+    # Crear problema
+    problema = pulp.LpProblem("PL_Sensibilidad", pulp.LpMaximize if tipo == 'max' else pulp.LpMinimize)
 
-        print("✅ Datos procesados correctamente.")
-        print(f"tipo: {tipo}")
-        print(f"coef_objetivo: {coef_objetivo}")
-        print(f"lhs: {lhs}")
-        print(f"rhs: {rhs}")
+    # Crear variables continuas (pulp las trata como tales por defecto)
+    x = [pulp.LpVariable(f"x{i+1}", lowBound=0) for i in range(len(coef_objetivo))]
 
-        c = coef_objetivo if tipo == "min" else -coef_objetivo
+    # Función objetivo
+    problema += pulp.lpDot(coef_objetivo, x), "Z"
 
-        resultado = opt.linprog(c=c, A_ub=lhs, b_ub=rhs, method="highs")
+    # Restricciones
+    for i in range(len(lhs)):
+        problema += (pulp.lpDot(lhs[i], x) <= rhs[i]), f"R{i+1}"
 
-        if not resultado.success:
-            return {"success": False, "message": "No se pudo resolver el problema."}
+    # Resolver
+    problema.solve()
 
-        solucion = resultado.x
-        valor_objetivo = resultado.fun if tipo == "min" else -resultado.fun
+    if problema.status != 1:  # 1 = Optimal
+        return {"mensaje": "No se encontró solución óptima"}
 
-        sensibilidad_variables = [
-            {"variable": f"x{i+1}", "valorActual": v, "permisibleAumentar": "N/A", "permisibleDisminuir": "N/A"}
-            for i, v in enumerate(solucion)
-        ]
+    # Obtener solución óptima
+    solucion = {f"x{i+1}": x[i].varValue for i in range(len(x))}
+    z_optimo = pulp.value(problema.objective)
 
-        sensibilidad_restricciones = [
-            {"restriccion": f"Restricción {i+1}", "valorActual": rhs[i], "valorSombra": "N/A", "permisibleAumentar": "N/A", "permisibleDisminuir": "N/A"}
-            for i in range(len(rhs))
-        ]
+    # Analisis de sensibilidad
+    sensibilidadVariables = []
+    for i, var in enumerate(x):
+        sensibilidadVariables.append({
+            "variable": var.name,
+            "valorActual": round(var.varValue, 4),
+            "permisibleAumentar": round(var.dj if var.dj > 0 else 0, 4),
+            "permisibleDisminuir": round(-var.dj if var.dj < 0 else 0, 4)
+        })
 
-        return {
-            "success": True,
-            "solucion": [float(x) for x in solucion.tolist()],
-            "valor_objetivo": float(valor_objetivo),
-            "sensibilidadVariables": [ {
-            "variable": v["variable"],
-            "valorActual": float(v["valorActual"]),
-            "permisibleAumentar": v["permisibleAumentar"],
-            "permisibleDisminuir": v["permisibleDisminuir"]
-            }
-            for v in sensibilidad_variables
-            ],
-        "sensibilidadRestricciones": [
-            {
-                "restriccion": r["restriccion"],
-                "valorActual": float(r["valorActual"]),
-                "valorSombra": r["valorSombra"],
-                "permisibleAumentar": r["permisibleAumentar"],
-                "permisibleDisminuir": r["permisibleDisminuir"]
-            }
-        for r in sensibilidad_restricciones
-    ]
-}
+    sensibilidadRestricciones = []
+    for nombre, restriccion in problema.constraints.items():
+        sombra = restriccion.pi  # Valor sombra
+        sensibilidadRestricciones.append({
+            "restriccion": nombre,
+            "valorActual": round(rhs[int(nombre[1:]) - 1], 4),
+            "valorSombra": round(sombra, 4),
+            "permisibleAumentar": "No calculado",
+            "permisibleDisminuir": "No calculado"
+        })
 
-    except Exception as e:
-        print(f"❌ Error procesando la solicitud: {str(e)}")
-        return {"success": False, "message": f"Error en el servidor: {str(e)}"}
-
+    return {
+        "solucion": solucion,
+        "z_optimo": round(z_optimo, 4),
+        "sensibilidadVariables": sensibilidadVariables,
+        "sensibilidadRestricciones": sensibilidadRestricciones
+    }

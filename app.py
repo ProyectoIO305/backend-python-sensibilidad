@@ -12,7 +12,7 @@ def read_root():
 # Habilitar CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Puedes restringir esto luego
+    allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"]
 )
@@ -34,7 +34,7 @@ async def analisis_sensibilidad(data: SensibilidadRequest):
     # Crear problema
     problema = pulp.LpProblem("PL_Sensibilidad", pulp.LpMaximize if tipo == 'max' else pulp.LpMinimize)
 
-    # Crear variables continuas (pulp las trata como tales por defecto)
+    # Crear variables continuas
     x = [pulp.LpVariable(f"x{i+1}", lowBound=0) for i in range(len(coef_objetivo))]
 
     # Función objetivo
@@ -47,26 +47,31 @@ async def analisis_sensibilidad(data: SensibilidadRequest):
     # Resolver
     problema.solve()
 
-    if problema.status != 1:  # 1 = Optimal
+    if problema.status != 1:
         return {"mensaje": "No se encontró solución óptima"}
 
-    # Obtener solución óptima
     solucion = {f"x{i+1}": x[i].varValue for i in range(len(x))}
     z_optimo = pulp.value(problema.objective)
 
-    # Análisis de sensibilidad (valor sombra solo)
     sensibilidadVariables = []
     for i, var in enumerate(x):
+        if coef_objetivo[i] != 0:
+            # Calcular el porcentaje de cambio permisible (aproximación)
+            margen = abs(var.dj / coef_objetivo[i]) if coef_objetivo[i] != 0 else 0
+            porcentaje = margen * 100
+        else:
+            porcentaje = 0
+
         sensibilidadVariables.append({
             "variable": var.name,
             "valorActual": round(var.varValue, 4),
-            "permisibleAumentar": round(var.dj if var.dj > 0 else 0, 4),
-            "permisibleDisminuir": round(-var.dj if var.dj < 0 else 0, 4)
+            "permisibleAumentar": f"Aproximadamente puede aumentar {round(porcentaje, 2)}%" if var.dj > 0 else "Sin margen de aumento",
+            "permisibleDisminuir": f"Aproximadamente puede disminuir {round(porcentaje, 2)}%" if var.dj < 0 else "Sin margen de disminución"
         })
 
     sensibilidadRestricciones = []
     for nombre, restriccion in problema.constraints.items():
-        sombra = restriccion.pi  # Valor sombra
+        sombra = restriccion.pi
         sensibilidadRestricciones.append({
             "restriccion": nombre,
             "valorActual": round(rhs[int(nombre[1:]) - 1], 4),

@@ -24,39 +24,50 @@ def options_handler():
 
 @app.post("/analisis-sensibilidad")
 async def analisis_sensibilidad(request: Request):
-    body = await request.json()
-    print("🔵 Datos recibidos:", body)
+    try:
+        body = await request.json()
+        print("🔵 Datos recibidos:", body)
 
-    tipo = body["tipo"]
-    coef_objetivo = np.array(body["coef_objetivo"])  # <- aquí era el error
-    lhs = np.array(body["lhs"])
-    rhs = np.array(body["rhs"])
+        tipo = body["tipo"]
+        coef_objetivo = np.array(body["coef_objetivo"])
+        lhs = np.array(body["lhs"])
+        rhs = np.array(body["rhs"])
 
-    c = coef_objetivo if tipo == "min" else -coef_objetivo
+        print("✅ Datos procesados correctamente.")
+        print(f"tipo: {tipo}")
+        print(f"coef_objetivo: {coef_objetivo}")
+        print(f"lhs: {lhs}")
+        print(f"rhs: {rhs}")
 
-    resultado = opt.linprog(c=c, A_ub=lhs, b_ub=rhs, method="highs")
+        c = coef_objetivo if tipo == "min" else -coef_objetivo
 
-    if not resultado.success:
-        return {"success": False, "message": "No se pudo resolver el problema."}
+        resultado = opt.linprog(c=c, A_ub=lhs, b_ub=rhs, method="highs")
 
-    solucion = resultado.x
-    valor_objetivo = resultado.fun if tipo == "min" else -resultado.fun
+        if not resultado.success:
+            return {"success": False, "message": "No se pudo resolver el problema."}
 
-    # Ejemplo de análisis de sensibilidad básico
-    sensibilidad_variables = [
-        {"variable": f"x{i+1}", "valorActual": v, "permisibleAumentar": "N/A", "permisibleDisminuir": "N/A"}
-        for i, v in enumerate(solucion)
-    ]
+        solucion = resultado.x
+        valor_objetivo = resultado.fun if tipo == "min" else -resultado.fun
 
-    sensibilidad_restricciones = [
-        {"restriccion": f"Restricción {i+1}", "valorActual": rhs[i], "valorSombra": "N/A", "permisibleAumentar": "N/A", "permisibleDisminuir": "N/A"}
-        for i in range(len(rhs))
-    ]
+        sensibilidad_variables = [
+            {"variable": f"x{i+1}", "valorActual": v, "permisibleAumentar": "N/A", "permisibleDisminuir": "N/A"}
+            for i, v in enumerate(solucion)
+        ]
 
-    return {
-        "success": True,
-        "solucion": solucion.tolist(),
-        "valor_objetivo": valor_objetivo,
-        "sensibilidadVariables": sensibilidad_variables,
-        "sensibilidadRestricciones": sensibilidad_restricciones
-    }
+        sensibilidad_restricciones = [
+            {"restriccion": f"Restricción {i+1}", "valorActual": rhs[i], "valorSombra": "N/A", "permisibleAumentar": "N/A", "permisibleDisminuir": "N/A"}
+            for i in range(len(rhs))
+        ]
+
+        return {
+            "success": True,
+            "solucion": solucion.tolist(),
+            "valor_objetivo": valor_objetivo,
+            "sensibilidadVariables": sensibilidad_variables,
+            "sensibilidadRestricciones": sensibilidad_restricciones
+        }
+
+    except Exception as e:
+        print(f"❌ Error procesando la solicitud: {str(e)}")
+        return {"success": False, "message": f"Error en el servidor: {str(e)}"}
+

@@ -7,10 +7,11 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # O pon ["https://pruebaproyecto-1jeh.onrender.com"] para más seguridad
+    allow_origins=["https://pruebaproyecto-1jeh.onrender.com"],  # Mejor limitar a tu frontend
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "OPTIONS"],  # Métodos permitidos
+    allow_headers=["*"],  # O puedes especificar ["Content-Type"]
+    expose_headers=["*"]
 )
 
 @app.get("/")

@@ -5,26 +5,30 @@ import scipy.optimize as opt
 
 app = FastAPI()
 
+# Configuración CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://pruebaproyecto-1jeh.onrender.com"],  # Mejor limitar a tu frontend
+    allow_origins=["https://pruebaproyecto-1jeh.onrender.com"],  # Específico
     allow_credentials=True,
-    allow_methods=["GET", "POST", "OPTIONS"],  # Métodos permitidos
-    allow_headers=["*"],  # O puedes especificar ["Content-Type"]
-    expose_headers=["*"]
+    allow_methods=["*"],  # Puedes usar ["GET", "POST", "OPTIONS"] pero "*" es más flexible
+    allow_headers=["*"],
 )
 
 @app.get("/")
 def read_root():
     return {"message": "Backend de análisis de sensibilidad funcionando correctamente"}
 
+@app.options("/analisis-sensibilidad")  # Soportar preflight OPTIONS
+def options_handler():
+    return {}
+
 @app.post("/analisis-sensibilidad")
 async def analisis_sensibilidad(request: Request):
     body = await request.json()
     tipo = body["tipo"]
-    coef_objetivo = np.array(body["coef_objetivo"])
-    lhs = np.array(body["lhs"])
-    rhs = np.array(body["rhs"])
+    coef_objetivo = np.array(body["coefObjetivo"])
+    lhs = np.array([r["coef"] for r in body["restricciones"]])
+    rhs = np.array([r["valor"] for r in body["restricciones"]])
 
     c = coef_objetivo if tipo == "min" else -coef_objetivo
 
@@ -36,8 +40,21 @@ async def analisis_sensibilidad(request: Request):
     solucion = resultado.x
     valor_objetivo = resultado.fun if tipo == "min" else -resultado.fun
 
+    # Esto es un ejemplo, puedes cambiarlo por tu análisis de sensibilidad real
+    sensibilidad_variables = [
+        {"variable": f"x{i+1}", "valorActual": v, "permisibleAumentar": "N/A", "permisibleDisminuir": "N/A"}
+        for i, v in enumerate(solucion)
+    ]
+
+    sensibilidad_restricciones = [
+        {"restriccion": f"Restricción {i+1}", "valorActual": rhs[i], "valorSombra": "N/A", "permisibleAumentar": "N/A", "permisibleDisminuir": "N/A"}
+        for i in range(len(rhs))
+    ]
+
     return {
         "success": True,
         "solucion": solucion.tolist(),
-        "valor_objetivo": valor_objetivo
+        "valor_objetivo": valor_objetivo,
+        "sensibilidadVariables": sensibilidad_variables,
+        "sensibilidadRestricciones": sensibilidad_restricciones
     }

@@ -17,7 +17,6 @@ app.add_middleware(
     allow_headers=["*"]
 )
 
-# Modelo de datos esperado
 class SensibilidadRequest(BaseModel):
     tipo: str
     coef_objetivo: list
@@ -88,7 +87,6 @@ async def analisis_sensibilidad(data: SensibilidadRequest):
         problema_temp.solve()
         z_disminuido = pulp.value(problema_temp.objective)
 
-        # Calcular el porcentaje de variación de Z
         variacion_mas = abs((z_aumentado - z_optimo) / z_optimo) * 100 if z_optimo != 0 else 0
         variacion_menos = abs((z_disminuido - z_optimo) / z_optimo) * 100 if z_optimo != 0 else 0
 
@@ -100,12 +98,11 @@ async def analisis_sensibilidad(data: SensibilidadRequest):
 
     # Sensibilidad aproximada de las restricciones
     for i in range(len(rhs)):
-        # Aumentar 10% en RHS de la restricción
         rhs_aumentado = rhs.copy()
         rhs_aumentado[i] *= 1.1
 
         problema_temp = pulp.LpProblem("Temp", pulp.LpMaximize if tipo == 'max' else pulp.LpMinimize)
-        x_temp = [pulp.LpVariable(f"x{i+1}", lowBound=0) for i in range(len(coef_objetivo))]
+        x_temp = [pulp.LpVariable(f"x{j+1}", lowBound=0) for j in range(len(coef_objetivo))]
         problema_temp += pulp.lpDot(coef_objetivo, x_temp), "Z"
 
         for j in range(len(lhs)):
@@ -114,12 +111,11 @@ async def analisis_sensibilidad(data: SensibilidadRequest):
         problema_temp.solve()
         z_aumentado = pulp.value(problema_temp.objective)
 
-        # Disminuir 10% en RHS de la restricción
         rhs_disminuido = rhs.copy()
         rhs_disminuido[i] *= 0.9
 
         problema_temp = pulp.LpProblem("Temp", pulp.LpMaximize if tipo == 'max' else pulp.LpMinimize)
-        x_temp = [pulp.LpVariable(f"x{i+1}", lowBound=0) for i in range(len(coef_objetivo))]
+        x_temp = [pulp.LpVariable(f"x{j+1}", lowBound=0) for j in range(len(coef_objetivo))]
         problema_temp += pulp.lpDot(coef_objetivo, x_temp), "Z"
 
         for j in range(len(lhs)):
@@ -128,13 +124,18 @@ async def analisis_sensibilidad(data: SensibilidadRequest):
         problema_temp.solve()
         z_disminuido = pulp.value(problema_temp.objective)
 
-        # Calcular el porcentaje de variación de Z
         variacion_mas = abs((z_aumentado - z_optimo) / z_optimo) * 100 if z_optimo != 0 else 0
         variacion_menos = abs((z_disminuido - z_optimo) / z_optimo) * 100 if z_optimo != 0 else 0
+
+        # Cálculo aproximado del valor sombra (delta Z / delta RHS)
+        cambio_rhs = 0.1 * rhs[i] if rhs[i] != 0 else 0.1
+        delta_z = (z_aumentado - z_disminuido) / 2  # Promedio de cambio
+        valor_sombra_aprox = delta_z / cambio_rhs if cambio_rhs != 0 else 0
 
         sensibilidadRestricciones.append({
             "restriccion": f"R{i+1}",
             "valorActual": round(rhs[i], 4),
+            "valorSombra": round(valor_sombra_aprox, 4),
             "variacionAproximada": f"±{round(max(variacion_mas, variacion_menos), 2)}%"
         })
 

@@ -1,7 +1,9 @@
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import pulp
+import xmlrpc.client
+import time
 
 app = FastAPI()
 
@@ -44,40 +46,92 @@ async def analisis_sensibilidad(data: SensibilidadRequest):
     for i in range(len(lhs)):
         problema += (pulp.lpDot(lhs[i], x) <= rhs[i]), f"R{i+1}"
 
-    # Resolver
+    # Resolver localmente con pulp (por si quieres compararlo)
     problema.solve()
 
     if problema.status != 1:  # 1 = Optimal
         return {"mensaje": "No se encontró solución óptima"}
 
-    # Obtener solución óptima
-    solucion = {f"x{i+1}": x[i].varValue for i in range(len(x))}
-    z_optimo = pulp.value(problema.objective)
+    # Solución local
+    solucion_local = {f"x{i+1}": x[i].varValue for i in range(len(x))}
+    z_optimo_local = pulp.value(problema.objective)
 
-    # Analisis de sensibilidad
-    sensibilidadVariables = []
-    for i, var in enumerate(x):
-        sensibilidadVariables.append({
-            "variable": var.name,
-            "valorActual": round(var.varValue, 4),
-            "permisibleAumentar": round(var.dj if var.dj > 0 else 0, 4),
-            "permisibleDisminuir": round(-var.dj if var.dj < 0 else 0, 4)
-        })
-
-    sensibilidadRestricciones = []
-    for nombre, restriccion in problema.constraints.items():
-        sombra = restriccion.pi  # Valor sombra
-        sensibilidadRestricciones.append({
-            "restriccion": nombre,
-            "valorActual": round(rhs[int(nombre[1:]) - 1], 4),
-            "valorSombra": round(sombra, 4),
-            "permisibleAumentar": "No calculado",
-            "permisibleDisminuir": "No calculado"
-        })
+    # Conectar a NEOS
+    mps_model = generar_mps(coef_objetivo, lhs, rhs, tipo)
+    sensibilidad_neos = enviar_a_neos(mps_model)
 
     return {
-        "solucion": solucion,
-        "z_optimo": round(z_optimo, 4),
-        "sensibilidadVariables": sensibilidadVariables,
-        "sensibilidadRestricciones": sensibilidadRestricciones
+        "solucion_local": solucion_local,
+        "z_optimo_local": round(z_optimo_local, 4),
+        "respuesta_neos": sensibilidad_neos
     }
+
+def generar_mps(coef_objetivo, lhs, rhs, tipo):
+    """
+    Genera un modelo MPS en formato texto desde los datos JSON.
+    """
+    n_vars = len(coef_objetivo)
+    n_restricciones = len(lhs)
+    
+    lines = []
+    lines.append("NAME          PL_SENSIBILIDAD")
+    lines.append("ROWS")
+    lines.append(" N  OBJETIVO")
+    for i in range(n_restricciones):
+        lines.append(f" L  R{i+1}")
+
+    lines.append("COLUMNS")
+    for j in range(n_vars):
+        var_name = f"x{j+1}"
+        lines.append(f"    {var_name}  OBJETIVO    {coef_objetivo[j]}")
+        for i in range(n_restricciones):
+            if lhs[i][j] != 0:
+                lines.append(f"    {var_name}  R{i+1}    {lhs[i][j]}")
+
+    lines.append("RHS")
+    for i in range(n_restricciones):
+        lines.append(f"    RHS1      R{i+1}    {rhs[i]}")
+
+    lines.append("BOUNDS")
+    for j in range(n_vars):
+        lines.append(f" LO BOUND     x{j+1}    0")
+
+    lines.append("ENDATA")
+
+    return "\n".join(lines)
+
+def enviar_a_neos(mps_model):
+    neos = xmlrpc.client.ServerProxy("https://neos-server.org:3333")
+    
+    solver = "lp"
+    solver_category = "lp"
+    solver_name = "CPLEX"
+
+    # Crear un trabajo XML
+    mps_model = mps_model.replace("&", "&amp;")  # Para evitar errores XML
+    input_xml = f"""<?xml version="1.0" encoding="UTF-8"?>
+<document>
+    <category>{solver_category}</category>
+    <solver>{solver_name}</solver>
+    <inputMethod>MPS</inputMethod>
+    <inputType>AMPL</inputType>
+    <MPSInput><![CDATA[
+{mps_model}
+    ]]></MPSInput>
+</document>
+"""
+
+    # Enviar el trabajo a NEOS
+    job_number, password = neos.submitJob(input_xml)
+    print(f"Enviado a NEOS. Job#: {job_number}, Password: {password}")
+
+    # Esperar a que el trabajo se procese
+    status = ""
+    while status != "Done":
+        time.sleep(3)
+        status = neos.getJobStatus(job_number, password)
+        print(f"Estado del trabajo NEOS: {status}")
+
+    # Obtener resultados
+    result = neos.getFinalResults(job_number, password)
+    return {"resultado_raw": result.decode("utf-8")}

@@ -25,10 +25,12 @@ def options_handler():
 @app.post("/analisis-sensibilidad")
 async def analisis_sensibilidad(request: Request):
     body = await request.json()
+    print("🔵 Datos recibidos:", body)
+
     tipo = body["tipo"]
-    coef_objetivo = np.array(body["coefObjetivo"])
-    lhs = np.array([r["coef"] for r in body["restricciones"]])
-    rhs = np.array([r["valor"] for r in body["restricciones"]])
+    coef_objetivo = np.array(body["coef_objetivo"])  # <- aquí era el error
+    lhs = np.array(body["lhs"])
+    rhs = np.array(body["rhs"])
 
     c = coef_objetivo if tipo == "min" else -coef_objetivo
 
@@ -40,7 +42,7 @@ async def analisis_sensibilidad(request: Request):
     solucion = resultado.x
     valor_objetivo = resultado.fun if tipo == "min" else -resultado.fun
 
-    # Esto es un ejemplo, puedes cambiarlo por tu análisis de sensibilidad real
+    # Ejemplo de análisis de sensibilidad básico
     sensibilidad_variables = [
         {"variable": f"x{i+1}", "valorActual": v, "permisibleAumentar": "N/A", "permisibleDisminuir": "N/A"}
         for i, v in enumerate(solucion)

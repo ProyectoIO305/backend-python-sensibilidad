@@ -19,10 +19,10 @@ app.add_middleware(
 
 # Modelo de datos esperado
 class SensibilidadRequest(BaseModel):
-    tipo: str  # 'max' o 'min'
+    tipo: str
     coef_objetivo: list
-    lhs: list  # Lista de listas (coeficientes restricciones)
-    rhs: list  # Lado derecho restricciones
+    lhs: list
+    rhs: list
 
 @app.post("/analisis-sensibilidad")
 async def analisis_sensibilidad(data: SensibilidadRequest):
@@ -31,20 +31,14 @@ async def analisis_sensibilidad(data: SensibilidadRequest):
     lhs = data.lhs
     rhs = data.rhs
 
-    # Crear problema
     problema = pulp.LpProblem("PL_Sensibilidad", pulp.LpMaximize if tipo == 'max' else pulp.LpMinimize)
-
-    # Crear variables continuas
     x = [pulp.LpVariable(f"x{i+1}", lowBound=0) for i in range(len(coef_objetivo))]
 
-    # Función objetivo
     problema += pulp.lpDot(coef_objetivo, x), "Z"
 
-    # Restricciones
     for i in range(len(lhs)):
         problema += (pulp.lpDot(lhs[i], x) <= rhs[i]), f"R{i+1}"
 
-    # Resolver
     problema.solve()
 
     if problema.status != 1:
@@ -55,10 +49,14 @@ async def analisis_sensibilidad(data: SensibilidadRequest):
 
     sensibilidadVariables = []
     for i, var in enumerate(x):
-        if var.varValue == 0:
-            comentario = "Variable no utilizada en la solución actual"
+        if round(var.varValue, 4) == 0:
+            if coef_objetivo[i] != 0:
+                porcentaje = abs(var.dj / coef_objetivo[i]) * 100
+                comentario = f"La variable puede variar aproximadamente ±{round(porcentaje, 2)}% en su coeficiente"
+            else:
+                comentario = "El coeficiente objetivo es cero, análisis no aplicable"
         else:
-            comentario = "Variable activa en la solución actual"
+            comentario = "Variable activa en la solución actual, sensibilidad no disponible"
 
         sensibilidadVariables.append({
             "variable": var.name,
@@ -69,11 +67,13 @@ async def analisis_sensibilidad(data: SensibilidadRequest):
     sensibilidadRestricciones = []
     for nombre, restriccion in problema.constraints.items():
         sombra = restriccion.pi
+        comentario = "Este valor sombra indica cuánto cambiaría Z si la restricción se relaja en una unidad"
+
         sensibilidadRestricciones.append({
             "restriccion": nombre,
             "valorActual": round(rhs[int(nombre[1:]) - 1], 4),
             "valorSombra": round(sombra, 4),
-            "comentario": "Análisis detallado no disponible"
+            "comentario": comentario
         })
 
     return {

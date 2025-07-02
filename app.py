@@ -46,7 +46,7 @@ async def analisis_sensibilidad(data: SensibilidadRequest):
     solucion = {f"x{i+1}": x[i].varValue for i in range(len(x))}
     z_optimo = pulp.value(problema.objective)
 
-    # Sensibilidad de variables (aproximada como en el frontend antiguo)
+    # Sensibilidad de variables (aproximada)
     sensibilidadVariables = []
     for i, var in enumerate(x):
         if coef_objetivo[i] == 0:
@@ -93,16 +93,42 @@ async def analisis_sensibilidad(data: SensibilidadRequest):
             "comentario": comentario
         })
 
-    # Sensibilidad de restricciones (igual que antes)
+    # Sensibilidad de restricciones (aproximada)
     sensibilidadRestricciones = []
     for nombre, restriccion in problema.constraints.items():
         sombra = restriccion.pi if restriccion.pi is not None else 0
-        valor_actual = rhs[int(nombre[1:]) - 1]
+        index = int(nombre[1:]) - 1
+        valor_actual = rhs[index]
 
-        if sombra != 0:
-            comentario = f"El valor sombra indica que Z cambiaría {round(sombra, 4)} unidades por cada unidad que varíe el lado derecho."
-        else:
-            comentario = "El valor sombra es 0, cambiar el lado derecho no afecta Z."
+        # Aumentar 10% el lado derecho
+        rhs_aumentado = rhs.copy()
+        rhs_aumentado[index] *= 1.1
+
+        problema_temp = pulp.LpProblem("TempRestriccionAumento", pulp.LpMaximize if tipo == 'max' else pulp.LpMinimize)
+        x_temp = [pulp.LpVariable(f"x{i+1}", lowBound=0) for i in range(len(coef_objetivo))]
+        problema_temp += pulp.lpDot(coef_objetivo, x_temp), "Z"
+
+        for j in range(len(lhs)):
+            problema_temp += (pulp.lpDot(lhs[j], x_temp) <= rhs_aumentado[j]), f"R{j+1}"
+
+        problema_temp.solve()
+        z_mayor = pulp.value(problema_temp.objective)
+
+        # Disminuir 10% el lado derecho
+        rhs_disminuido = rhs.copy()
+        rhs_disminuido[index] *= 0.9
+
+        problema_temp = pulp.LpProblem("TempRestriccionDisminucion", pulp.LpMaximize if tipo == 'max' else pulp.LpMinimize)
+        x_temp = [pulp.LpVariable(f"x{i+1}", lowBound=0) for i in range(len(coef_objetivo))]
+        problema_temp += pulp.lpDot(coef_objetivo, x_temp), "Z"
+
+        for j in range(len(lhs)):
+            problema_temp += (pulp.lpDot(lhs[j], x_temp) <= rhs_disminuido[j]), f"R{j+1}"
+
+        problema_temp.solve()
+        z_menor = pulp.value(problema_temp.objective)
+
+        comentario = f"Si el lado derecho de {nombre} varía ±10%, Z estaría entre {round(z_menor, 2)} y {round(z_mayor, 2)}."
 
         sensibilidadRestricciones.append({
             "restriccion": nombre,

@@ -61,11 +61,27 @@ async def analisis_sensibilidad(request: Request):
 
         return {
             "success": True,
-            "solucion": solucion.tolist(),
-            "valor_objetivo": valor_objetivo,
-            "sensibilidadVariables": sensibilidad_variables,
-            "sensibilidadRestricciones": sensibilidad_restricciones
-        }
+            "solucion": [float(x) for x in solucion.tolist()],
+            "valor_objetivo": float(valor_objetivo),
+            "sensibilidadVariables": [ {
+            "variable": v["variable"],
+            "valorActual": float(v["valorActual"]),
+            "permisibleAumentar": v["permisibleAumentar"],
+            "permisibleDisminuir": v["permisibleDisminuir"]
+            }
+            for v in sensibilidad_variables
+            ],
+        "sensibilidadRestricciones": [
+            {
+                "restriccion": r["restriccion"],
+                "valorActual": float(r["valorActual"]),
+                "valorSombra": r["valorSombra"],
+                "permisibleAumentar": r["permisibleAumentar"],
+                "permisibleDisminuir": r["permisibleDisminuir"]
+            }
+        for r in sensibilidad_restricciones
+    ]
+}
 
     except Exception as e:
         print(f"❌ Error procesando la solicitud: {str(e)}")

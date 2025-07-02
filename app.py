@@ -5,6 +5,10 @@ import pulp
 
 app = FastAPI()
 
+@app.get("/")
+def read_root():
+    return {"mensaje": "El backend está funcionando correctamente"}
+
 # Habilitar CORS
 app.add_middleware(
     CORSMiddleware,

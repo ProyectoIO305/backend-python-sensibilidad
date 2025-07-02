@@ -47,41 +47,58 @@ async def analisis_sensibilidad(data: SensibilidadRequest):
     solucion = {f"x{i+1}": x[i].varValue for i in range(len(x))}
     z_optimo = pulp.value(problema.objective)
 
-    # Sensibilidad de variables
     sensibilidadVariables = []
+
+    # Sensibilidad aproximada numérica
     for i, var in enumerate(x):
-        if coef_objetivo[i] != 0:
-            porcentaje = abs(var.dj / coef_objetivo[i]) * 100
-        else:
-            porcentaje = 0
+        if coef_objetivo[i] == 0:
+            sensibilidadVariables.append({
+                "variable": var.name,
+                "valorActual": round(var.varValue, 4),
+                "variacionAproximada": "±0%"
+            })
+            continue
+
+        # Aumentar 10%
+        coef_aumentado = coef_objetivo.copy()
+        coef_aumentado[i] *= 1.1
+
+        problema_temp = pulp.LpProblem("Temp", pulp.LpMaximize if tipo == 'max' else pulp.LpMinimize)
+        x_temp = [pulp.LpVariable(f"x{i+1}", lowBound=0) for i in range(len(coef_objetivo))]
+        problema_temp += pulp.lpDot(coef_aumentado, x_temp), "Z"
+
+        for j in range(len(lhs)):
+            problema_temp += (pulp.lpDot(lhs[j], x_temp) <= rhs[j]), f"R{j+1}"
+
+        problema_temp.solve()
+        z_aumentado = pulp.value(problema_temp.objective)
+
+        # Disminuir 10%
+        coef_disminuido = coef_objetivo.copy()
+        coef_disminuido[i] *= 0.9
+
+        problema_temp = pulp.LpProblem("Temp", pulp.LpMaximize if tipo == 'max' else pulp.LpMinimize)
+        x_temp = [pulp.LpVariable(f"x{i+1}", lowBound=0) for i in range(len(coef_objetivo))]
+        problema_temp += pulp.lpDot(coef_disminuido, x_temp), "Z"
+
+        for j in range(len(lhs)):
+            problema_temp += (pulp.lpDot(lhs[j], x_temp) <= rhs[j]), f"R{j+1}"
+
+        problema_temp.solve()
+        z_disminuido = pulp.value(problema_temp.objective)
+
+        # Calcular el porcentaje de variación de Z
+        variacion_mas = abs((z_aumentado - z_optimo) / z_optimo) * 100 if z_optimo != 0 else 0
+        variacion_menos = abs((z_disminuido - z_optimo) / z_optimo) * 100 if z_optimo != 0 else 0
 
         sensibilidadVariables.append({
             "variable": var.name,
             "valorActual": round(var.varValue, 4),
-            "variacionAproximada": f"±{round(porcentaje, 2)}%"
-        })
-
-    # Sensibilidad de restricciones
-    sensibilidadRestricciones = []
-    for nombre, restriccion in problema.constraints.items():
-        sombra = restriccion.pi
-        valor_actual = rhs[int(nombre[1:]) - 1]
-
-        if sombra != 0:
-            porcentaje = abs(valor_actual / sombra) * 100
-        else:
-            porcentaje = 0
-
-        sensibilidadRestricciones.append({
-            "restriccion": nombre,
-            "valorActual": round(valor_actual, 4),
-            "valorSombra": round(sombra, 4),
-            "variacionAproximada": f"±{round(porcentaje, 2)}%"
+            "variacionAproximada": f"±{round(max(variacion_mas, variacion_menos), 2)}%"
         })
 
     return {
         "solucion": solucion,
         "z_optimo": round(z_optimo, 4),
-        "sensibilidadVariables": sensibilidadVariables,
-        "sensibilidadRestricciones": sensibilidadRestricciones
+        "sensibilidadVariables": sensibilidadVariables
     }

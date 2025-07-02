@@ -47,33 +47,36 @@ async def analisis_sensibilidad(data: SensibilidadRequest):
     solucion = {f"x{i+1}": x[i].varValue for i in range(len(x))}
     z_optimo = pulp.value(problema.objective)
 
+    # Sensibilidad de variables
     sensibilidadVariables = []
     for i, var in enumerate(x):
-        if round(var.varValue, 4) == 0:
-            if coef_objetivo[i] != 0:
-                porcentaje = abs(var.dj / coef_objetivo[i]) * 100
-                comentario = f"La variable puede variar aproximadamente ±{round(porcentaje, 2)}% en su coeficiente"
-            else:
-                comentario = "El coeficiente objetivo es cero, análisis no aplicable"
+        if coef_objetivo[i] != 0:
+            porcentaje = abs(var.dj / coef_objetivo[i]) * 100
         else:
-            comentario = "Variable activa en la solución actual, sensibilidad no disponible"
+            porcentaje = 0
 
         sensibilidadVariables.append({
             "variable": var.name,
             "valorActual": round(var.varValue, 4),
-            "comentario": comentario
+            "variacionAproximada": f"±{round(porcentaje, 2)}%"
         })
 
+    # Sensibilidad de restricciones
     sensibilidadRestricciones = []
     for nombre, restriccion in problema.constraints.items():
         sombra = restriccion.pi
-        comentario = "Este valor sombra indica cuánto cambiaría Z si la restricción se relaja en una unidad"
+        valor_actual = rhs[int(nombre[1:]) - 1]
+
+        if sombra != 0:
+            porcentaje = abs(valor_actual / sombra) * 100
+        else:
+            porcentaje = 0
 
         sensibilidadRestricciones.append({
             "restriccion": nombre,
-            "valorActual": round(rhs[int(nombre[1:]) - 1], 4),
+            "valorActual": round(valor_actual, 4),
             "valorSombra": round(sombra, 4),
-            "comentario": comentario
+            "variacionAproximada": f"±{round(porcentaje, 2)}%"
         })
 
     return {

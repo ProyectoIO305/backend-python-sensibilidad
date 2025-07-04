@@ -5,7 +5,6 @@ from typing import List
 
 app = FastAPI()
 
-# Permitir acceso desde cualquier origen (tu frontend)
 app.add_middleware(
   CORSMiddleware,
   allow_origins=["*"],
@@ -13,7 +12,6 @@ app.add_middleware(
   allow_headers=["*"],
 )
 
-# Estructura de datos que se espera recibir
 class Restriccion(BaseModel):
   coef: List[float]
   operador: str
@@ -33,7 +31,6 @@ def inicio():
 async def analizar_sensibilidad(datos: DatosProblema):
   print("Datos recibidos:", datos)
 
-  # Aquí luego programamos el análisis real
   return {
     "mensaje": "Datos recibidos correctamente en Python",
     "tipo": datos.tipo,

@@ -9,7 +9,6 @@ app = FastAPI()
 def read_root():
     return {"mensaje": "El backend está funcionando correctamente"}
 
-# Habilitar CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -46,7 +45,6 @@ async def analisis_sensibilidad(data: SensibilidadRequest):
     solucion = {f"x{i+1}": x[i].varValue for i in range(len(x))}
     z_optimo = pulp.value(problema.objective)
 
-    # Sensibilidad de variables (aproximada)
     sensibilidadVariables = []
     for i, var in enumerate(x):
         if coef_objetivo[i] == 0:
@@ -57,7 +55,6 @@ async def analisis_sensibilidad(data: SensibilidadRequest):
             })
             continue
 
-        # Aumentar 10%
         coef_aumentado = coef_objetivo.copy()
         coef_aumentado[i] *= 1.1
 
@@ -93,14 +90,12 @@ async def analisis_sensibilidad(data: SensibilidadRequest):
             "comentario": comentario
         })
 
-    # Sensibilidad de restricciones (aproximada)
     sensibilidadRestricciones = []
     for nombre, restriccion in problema.constraints.items():
         sombra = restriccion.pi if restriccion.pi is not None else 0
         index = int(nombre[1:]) - 1
         valor_actual = rhs[index]
 
-        # Aumentar 10% el lado derecho
         rhs_aumentado = rhs.copy()
         rhs_aumentado[index] *= 1.1
 
@@ -114,7 +109,6 @@ async def analisis_sensibilidad(data: SensibilidadRequest):
         problema_temp.solve()
         z_mayor = pulp.value(problema_temp.objective)
 
-        # Disminuir 10% el lado derecho
         rhs_disminuido = rhs.copy()
         rhs_disminuido[index] *= 0.9
 
